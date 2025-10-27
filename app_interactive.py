@@ -191,20 +191,20 @@ def print_8bit_table(headers: list, rows: list):
     print(f"{RetroColors.ARCADE}{border}{RetroColors.END}")
 
 def ask_yes_no(question: str, default: bool = True) -> bool:
-    """Evet/Hayır sorusu sor"""
+    """Ask a yes/no question"""
     default_text = "Y/n" if default else "y/N"
     while True:
         answer = input(f"{RetroColors.PROMPT}   {question} [{default_text}]: {RetroColors.END}").strip().lower()
         if not answer:
             return default
-        if answer in ['y', 'yes', 'evet', 'e']:
+        if answer in ['y', 'yes']:
             return True
-        if answer in ['n', 'no', 'hayır', 'h']:
+        if answer in ['n', 'no']:
             return False
         print(f"{RetroColors.ERROR}   Please enter y/yes or n/no{RetroColors.END}")
 
-def ask_number(question: str, default: int = None, min_val: int = None, max_val: int = None) -> int:
-    """Sayı sorusu sor"""
+def ask_number(question: str, default: Optional[int] = None, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
+    """Prompt for an integer value"""
     while True:
         prompt = f"{RetroColors.PROMPT}   {question}"
         if default is not None:
@@ -227,8 +227,8 @@ def ask_number(question: str, default: int = None, min_val: int = None, max_val:
         except ValueError:
             print(f"{RetroColors.ERROR}   Please enter a valid number{RetroColors.END}")
 
-def ask_text(question: str, default: str = None) -> str:
-    """Metin sorusu sor"""
+def ask_text(question: str, default: Optional[str] = None) -> str:
+    """Prompt for a free-form text value"""
     prompt = f"{RetroColors.PROMPT}   {question}"
     if default:
         prompt += f" [{default}]"
@@ -247,7 +247,7 @@ def interactive_setup() -> Dict[str, Any]:
     # Step 1: Input file
     print_8bit_step(1, 9, "INPUT FILE SELECTION")
     
-    # JSONL dosyalarını bul
+    # Detect available JSONL files
     jsonl_files = glob.glob("*.jsonl")
     if jsonl_files:
         print(f"{RetroColors.INFO}Found JSONL files:{RetroColors.END}")
@@ -353,7 +353,7 @@ def interactive_setup() -> Dict[str, Any]:
     }
 
 def run_processing(config: Dict[str, Any]):
-    """İşlemi çalıştır"""
+    """Execute the processing pipeline"""
     # Load dataset
     records = load_jsonl(config["input_file"])
     if not records:

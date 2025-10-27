@@ -5,7 +5,7 @@ import re
 import hashlib
 from typing import List
 
-# ====== Ayarlar ======
+# ====== Settings ======
 SAFE = re.compile(r"[^a-z0-9_]+")
 
 def sha(s: str, n=8): 
@@ -23,12 +23,12 @@ def slug(s: str, prefix="tool"):
 
 def generate_smart_tool_name(sql: str, question: str = "") -> str:
     """
-    SQL yapısından genel bir tool ismi oluştur.
-    Örnek: select_grouped_sorted_limited, select_joined_filtered, insert_into_table
+    Derive a descriptive tool name from the SQL structure.
+    Example: select_grouped_sorted_limited, select_joined_filtered, insert_into_table
     """
     sql_upper = sql.upper()
     
-    # 1. SQL tipini belirle (ana operasyon)
+    # 1. Determine the primary SQL operation
     if sql_upper.strip().startswith('SELECT'):
         prefix = "select"
     elif sql_upper.strip().startswith('INSERT'):
@@ -46,10 +46,10 @@ def generate_smart_tool_name(sql: str, question: str = "") -> str:
     else:
         prefix = "query"
     
-    # 2. SQL yapı özelliklerini belirle (öncelik sırasına göre)
+    # 2. Detect structural features in priority order
     features = []
     
-    # Aggregate fonksiyonlar (yüksek öncelik)
+    # Aggregate functions (highest priority)
     if re.search(r'\bCOUNT\s*\(', sql, re.I):
         features.append("count")
     elif re.search(r'\bSUM\s*\(', sql, re.I):
@@ -93,10 +93,10 @@ def generate_smart_tool_name(sql: str, question: str = "") -> str:
     if re.search(r'\bDISTINCT\b', sql, re.I):
         features.append("distinct")
     
-    # 3. İsmi oluştur - öncelik sırasına göre max 3 feature
+    # 3. Construct the name — up to three features in priority order
     parts = [prefix]
     
-    # Öncelik: aggregate > grouped > joined > filtered > sorted > limited
+    # Priority: aggregate > grouped > joined > filtered > sorted > limited
     priority_order = ["count", "sum", "aggregate", "grouped", "joined", "left_joined", 
                       "filtered", "sorted", "limited", "distinct", "having", "offset"]
     
@@ -105,16 +105,16 @@ def generate_smart_tool_name(sql: str, question: str = "") -> str:
         if feature in features:
             sorted_features.append(feature)
     
-    # En fazla 3 özellik al
+    # Limit to at most three features
     parts.extend(sorted_features[:3])
     
     name = "_".join(parts)
     
-    # Temizle
+    # Clean up the identifier
     name = re.sub(r'[^a-z0-9_]+', '_', name.lower())
     name = re.sub(r'_+', '_', name).strip('_')
     
-    # Çok uzunsa kısalt
+    # Shorten if necessary
     if len(name) > 50:
         name = name[:50].rstrip('_')
     

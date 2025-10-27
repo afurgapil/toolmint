@@ -517,7 +517,7 @@ class ProcessingWorker(QThread):
         except Exception as e:
             import traceback
             error_msg = f"Processing Error:\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-            print(error_msg)  # Console'a da yazdır
+            print(error_msg)  # Mirror the message in the console
             self.error.emit(error_msg)
 
 class ModernSQLToolGenerator(QMainWindow):
