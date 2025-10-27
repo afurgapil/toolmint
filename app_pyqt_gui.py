@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QTextEdit, QProgressBar, QCheckBox,
                              QSlider, QComboBox, QFileDialog, QMessageBox,
                              QTabWidget, QGroupBox, QSplitter, QFrame,
-                             QTableWidget, QTableWidgetItem, QHeaderView, QDialog)
+                             QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QMenu,
+                             QScrollArea)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QPalette, QColor
 
@@ -26,6 +27,8 @@ from src.parameterizer import SQLParameterizer
 from src.quality import calculate_tool_quality_score
 from src.labels import generate_labels
 from src.validation import validate_tool_advanced
+from src.export import (export_tools_to_json, export_tools_to_csv, 
+                        export_results_to_txt, export_results_to_json)
 
 class ToolsViewerDialog(QDialog):
     """Dialog for viewing generated tools"""
@@ -348,6 +351,8 @@ class ProcessingWorker(QThread):
     status = pyqtSignal(str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
+    preview = pyqtSignal(dict)  # Preview of first tools
+    stats = pyqtSignal(dict)  # Processing statistics
     
     def __init__(self, config):
         super().__init__()
@@ -355,6 +360,7 @@ class ProcessingWorker(QThread):
         
     def run(self):
         try:
+            import time
             self.status.emit("Loading data...")
             self.progress.emit(10)
             
@@ -383,6 +389,8 @@ class ProcessingWorker(QThread):
             # Process each item
             tools = []
             processed_count = 0
+            filtered_count = 0
+            start_time = time.time()
             
             for i, item in enumerate(data):
                 try:
@@ -399,6 +407,13 @@ class ProcessingWorker(QThread):
                     else:
                         param_sql = normalized["sql"]
                         params = []
+                    
+                    # Convert to target SQL dialect
+                    dialect = self.config.get("sql_dialect", "mysql")
+                    if dialect != "mysql":
+                        from src.sql_dialect_converter import SQLDialectConverter
+                        converter = SQLDialectConverter(dialect)
+                        param_sql, params = converter.convert(param_sql, params)
                     
                     # Calculate quality score (simplified for now)
                     try:
@@ -441,13 +456,48 @@ class ProcessingWorker(QThread):
                     progress = 50 + int((i / len(data)) * 40)
                     self.progress.emit(progress)
                     
+                    # Emit preview of first 10 tools
+                    if processed_count <= 10:
+                        self.preview.emit(tool)
+                    
+                    # Emit stats every 100 items or every 10 items after first 100
+                    if i % 10 == 0 or (processed_count > 100 and i % 100 == 0):
+                        elapsed = time.time() - start_time
+                        remaining_items = len(data) - (i + 1)
+                        
+                        # Calculate ETA (only after processing > 10 items)
+                        if processed_count > 10:
+                            avg_time_per_item = elapsed / processed_count
+                            eta_seconds = avg_time_per_item * remaining_items
+                            eta_minutes = int(eta_seconds // 60)
+                            eta_seconds = int(eta_seconds % 60)
+                            eta_str = f"{eta_minutes}m {eta_seconds}s"
+                        else:
+                            eta_str = "Calculating..."
+                        
+                        stats = {
+                            'processed': processed_count,
+                            'total': len(data),
+                            'filtered': filtered_count,
+                            'eta': eta_str,
+                            'elapsed': f"{int(elapsed)}s"
+                        }
+                        self.stats.emit(stats)
+                    
                 except Exception as e:
                     print(f"Error processing item {i}: {e}")
                     continue
             
-            # Save to YAML file
+            # Save to YAML file with dialect-specific naming
             self.status.emit("Saving results...")
             output_file = self.config.get("output_file", "tools.yaml")
+            dialect = self.config.get("sql_dialect", "mysql")
+            
+            # Adjust output file name based on dialect
+            if dialect != "mysql":
+                base, ext = os.path.splitext(output_file)
+                output_file = f"{base}_{dialect}{ext}"
+            
             merge_yaml(output_file, tools)
             
             self.progress.emit(100)
@@ -503,11 +553,14 @@ class ModernSQLToolGenerator(QMainWindow):
             "max_quality_score": 100,
             "min_params": 1,
             "use_max_score": False,
-            "input_file": ""
+            "input_file": "",
+            "sql_dialect": "mysql"
         }
         
         self.processing = False
         self.results = {}
+        self.preview_tools = []  # Store preview tools
+        self.processing_stats = {}  # Store processing statistics
         
         # Create UI
         self.create_ui()
@@ -557,6 +610,8 @@ class ModernSQLToolGenerator(QMainWindow):
                 border-radius: 4px;
                 padding: 5px;
                 font-size: 12px;
+                background-color: white;
+                color: #333;
             }
             QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
                 border-color: #4CAF50;
@@ -626,9 +681,23 @@ class ModernSQLToolGenerator(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
         
-        # Left panel (Configuration)
-        left_panel = self.create_config_panel()
-        splitter.addWidget(left_panel)
+        # Left panel (Configuration) with scroll area
+        config_widget = self.create_config_panel()
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(config_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Set light gray background to match main window
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: #f5f5f5;
+            }
+        """)
+        
+        splitter.addWidget(scroll_area)
         
         # Right panel (Results)
         right_panel = self.create_results_panel()
@@ -638,22 +707,31 @@ class ModernSQLToolGenerator(QMainWindow):
         splitter.setSizes([600, 800])
         
         # Status bar
-        self.status_label = QLabel("Ready")
         status_bar = self.statusBar()
         if status_bar is not None:
+            # Add left spacer to center the content
+            status_bar.addWidget(QLabel())  # Left spacer
+            
+            self.status_label = QLabel("Ready")
             status_bar.addWidget(self.status_label)
-        
-        # Progress bar in status bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        if status_bar is not None:
-            status_bar.addPermanentWidget(self.progress_bar)
+            
+            # Progress bar in status bar (centered)
+            self.progress_bar = QProgressBar()
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setMaximumWidth(300)  # Limit width
+            status_bar.addWidget(self.progress_bar)
+            
+            # Add right spacer to balance
+            status_bar.addPermanentWidget(QLabel())  # Right spacer
         
     def create_config_panel(self):
         """Create configuration panel"""
         panel = QWidget()
+        panel.setMinimumWidth(500)  # Set minimum width to prevent squeezing
+        panel.setStyleSheet("background-color: #f5f5f5;")  # Match main background
         layout = QVBoxLayout(panel)
         layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)  # Add some margins
         
         # File Selection Group
         file_group = QGroupBox("📁 Input File")
@@ -667,15 +745,50 @@ class ModernSQLToolGenerator(QMainWindow):
         
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self.browse_file)
+        browse_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
         file_layout.addWidget(browse_btn, 0, 2)
         
         # View dataset button
         view_dataset_btn = QPushButton("👁️ View")
         view_dataset_btn.clicked.connect(self.view_dataset)
         view_dataset_btn.setToolTip("View dataset contents in a table")
+        view_dataset_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
         file_layout.addWidget(view_dataset_btn, 0, 3)
         
         layout.addWidget(file_group)
+        
+        # Dataset Statistics Panel
+        self.dataset_info_group = QGroupBox("📊 Dataset Information")
+        dataset_info_layout = QVBoxLayout(self.dataset_info_group)
+        self.dataset_info_label = QLabel("No dataset selected")
+        self.dataset_info_label.setWordWrap(True)
+        self.dataset_info_label.setStyleSheet("color: #666; font-size: 11px; padding: 10px;")
+        dataset_info_layout.addWidget(self.dataset_info_label)
+        self.dataset_info_group.setVisible(False)
+        layout.addWidget(self.dataset_info_group)
+        
+        # Connect file path changes to analyze dataset
+        self.file_path_edit.textChanged.connect(self.analyze_dataset)
         
         # Basic Configuration Group
         basic_group = QGroupBox("⚙️ Basic Configuration")
@@ -710,6 +823,23 @@ class ModernSQLToolGenerator(QMainWindow):
         basic_layout.addWidget(self.license_edit, 3, 1)
         
         layout.addWidget(basic_group)
+        
+        # Database Dialect Group
+        dialect_group = QGroupBox("🗄️ Database Dialect")
+        dialect_layout = QHBoxLayout(dialect_group)
+        
+        dialect_layout.addWidget(QLabel("Target Database:"))
+        self.dialect_combo = QComboBox()
+        self.dialect_combo.addItems(["MySQL", "PostgreSQL", "SQLite", "SQL Server"])
+        self.dialect_combo.setCurrentText("MySQL")
+        dialect_layout.addWidget(self.dialect_combo)
+        
+        # Info label
+        dialect_info = QLabel("SQL syntax will be converted to selected dialect")
+        dialect_info.setStyleSheet("color: #666; font-size: 11px; margin-left: 10px;")
+        dialect_layout.addWidget(dialect_info)
+        
+        layout.addWidget(dialect_group)
         
         # Processing Options Group
         options_group = QGroupBox("🔄 Processing Options")
@@ -832,9 +962,23 @@ class ModernSQLToolGenerator(QMainWindow):
         copy_btn.clicked.connect(self.copy_results)
         button_layout.addWidget(copy_btn)
         
-        save_btn = QPushButton("💾 Save Results")
-        save_btn.clicked.connect(self.save_results)
-        button_layout.addWidget(save_btn)
+        # Export dropdown button
+        self.export_btn = QPushButton("💾 Export")
+        export_menu = QMenu(self)
+        
+        # Results export options
+        export_menu.addSeparator()
+        export_menu.addAction("📄 Export Summary as TXT", lambda: self.export_results('txt'))
+        export_menu.addAction("📄 Export Summary as JSON", lambda: self.export_results('json'))
+        
+        # Tools export options (only shown when tools exist)
+        export_menu.addSeparator()
+        export_menu.addAction("🛠️ Export Tools as YAML", lambda: self.export_tools('yaml'))
+        export_menu.addAction("🛠️ Export Tools as JSON", lambda: self.export_tools('json'))
+        export_menu.addAction("🛠️ Export Tools as CSV", lambda: self.export_tools('csv'))
+        
+        self.export_btn.setMenu(export_menu)
+        button_layout.addWidget(self.export_btn)
         
         clear_btn = QPushButton("🗑️ Clear")
         clear_btn.clicked.connect(self.clear_results)
@@ -868,6 +1012,77 @@ class ModernSQLToolGenerator(QMainWindow):
         # Open viewer dialog
         dialog = DatasetViewerDialog(file_path, self)
         dialog.exec_()
+    
+    def analyze_dataset(self):
+        """Analyze selected dataset and show statistics"""
+        file_path = self.file_path_edit.text()
+        
+        # Hide panel if no file
+        if not file_path:
+            self.dataset_info_group.setVisible(False)
+            return
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            self.dataset_info_group.setVisible(False)
+            return
+        
+        try:
+            import re
+            # Load dataset
+            data = load_jsonl(file_path)
+            
+            if not data:
+                self.dataset_info_label.setText("Dataset is empty")
+                self.dataset_info_group.setVisible(True)
+                return
+            
+            # Calculate statistics
+            total_records = len(data)
+            
+            # SQL feature analysis
+            sql_keywords = {
+                'SELECT': 0, 'WHERE': 0, 'JOIN': 0, 'GROUP BY': 0,
+                'ORDER BY': 0, 'HAVING': 0, 'UNION': 0, 'WITH': 0
+            }
+            total_sql_length = 0
+            valid_sql_count = 0
+            
+            for item in data:
+                sql = item.get('sql', '')
+                if sql:
+                    valid_sql_count += 1
+                    total_sql_length += len(sql)
+                    sql_upper = sql.upper()
+                    for keyword in sql_keywords.keys():
+                        if keyword in sql_upper:
+                            sql_keywords[keyword] += 1
+            
+            avg_sql_length = int(total_sql_length / valid_sql_count) if valid_sql_count > 0 else 0
+            
+            # Dataset quality indicator
+            quality_features = sum(1 for count in sql_keywords.values() if count > total_records * 0.1)
+            quality_score = min(100, (quality_features * 15 + (valid_sql_count / total_records) * 100))
+            
+            # Format statistics
+            stats_text = f"""Total Records: {total_records:,}
+Valid SQL Queries: {valid_sql_count:,}
+Average SQL Length: {avg_sql_length} chars
+Dataset Quality: {'High' if quality_score > 70 else 'Medium' if quality_score > 40 else 'Low'} ({quality_score:.0f}/100)
+
+SQL Features:
+- WHERE clauses: {sql_keywords['WHERE']} ({sql_keywords['WHERE']*100//total_records}%)
+- JOIN operations: {sql_keywords['JOIN']} ({sql_keywords['JOIN']*100//total_records}%)
+- GROUP BY: {sql_keywords['GROUP BY']} ({sql_keywords['GROUP BY']*100//total_records}%)
+- ORDER BY: {sql_keywords['ORDER BY']} ({sql_keywords['ORDER BY']*100//total_records}%)
+"""
+            
+            self.dataset_info_label.setText(stats_text)
+            self.dataset_info_group.setVisible(True)
+            
+        except Exception as e:
+            self.dataset_info_label.setText(f"Error analyzing dataset: {str(e)}")
+            self.dataset_info_group.setVisible(True)
             
     def update_quality_label(self, value):
         """Update quality score label"""
@@ -904,18 +1119,34 @@ class ModernSQLToolGenerator(QMainWindow):
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
         
+        # Clear results panel and show "Starting..." message
+        if self.results_text is not None:
+            self.results_text.setPlainText("Starting processing...\nPlease wait...")
+        
         # Create and start worker thread
         self.worker = ProcessingWorker(self.config)
+        self.preview_tools = []  # Reset preview tools
+        self.processing_stats = {}  # Reset stats
+        
         if self.progress_bar is not None:
             self.worker.progress.connect(self.progress_bar.setValue)
         if self.status_label is not None:
             self.worker.status.connect(self.status_label.setText)
         self.worker.finished.connect(self.processing_finished)
         self.worker.error.connect(self.processing_error)
+        self.worker.preview.connect(self.handle_preview)
+        self.worker.stats.connect(self.handle_stats)
         self.worker.start()
         
     def update_config(self):
         """Update config from UI"""
+        # Get dialect and normalize it
+        dialect = self.dialect_combo.currentText().lower().replace(" ", "_")
+        if dialect == "sql_server":
+            dialect = "sql_server"
+        elif dialect == "postgresql":
+            dialect = "postgres"
+        
         self.config.update({
             "output_file": self.output_file_edit.text(),
             "tool_name": self.tool_name_edit.text(),
@@ -927,7 +1158,8 @@ class ModernSQLToolGenerator(QMainWindow):
             "use_quality_scoring": self.use_quality_check.isChecked(),
             "use_parameterization": self.use_param_check.isChecked(),
             "use_labeling": self.use_label_check.isChecked(),
-            "min_quality_score": self.quality_slider.value()
+            "min_quality_score": self.quality_slider.value(),
+            "sql_dialect": dialect
         })
         
     def processing_finished(self, results):
@@ -944,6 +1176,51 @@ class ModernSQLToolGenerator(QMainWindow):
         # Show View Generated Tools button
         self.view_tools_btn.setVisible(True)
         
+    def handle_preview(self, tool):
+        """Handle preview tool from processing"""
+        self.preview_tools.append(tool)
+        self.update_processing_preview()
+    
+    def handle_stats(self, stats):
+        """Handle processing statistics"""
+        self.processing_stats = stats
+        self.update_processing_preview()
+    
+    def update_processing_preview(self):
+        """Update results panel with processing preview"""
+        if self.results_text is None:
+            return
+        
+        # Build preview text
+        preview_text = "Processing in Progress...\n"
+        preview_text += "=" * 60 + "\n\n"
+        
+        # Add stats if available
+        if self.processing_stats:
+            stats = self.processing_stats
+            preview_text += f"Progress: {stats.get('processed', 0)}/{stats.get('total', 0)} items processed\n"
+            preview_text += f"Filtered: {stats.get('filtered', 0)} items\n"
+            preview_text += f"Elapsed: {stats.get('elapsed', '0')}s | "
+            preview_text += f"ETA: {stats.get('eta', 'Calculating...')}\n\n"
+        
+        # Add preview of first tools
+        if self.preview_tools:
+            preview_text += "Preview (First Tools):\n"
+            preview_text += "-" * 60 + "\n"
+            
+            for tool in self.preview_tools[:10]:
+                tool_name = list(tool.keys())[0]
+                tool_data = tool[tool_name]
+                desc = tool_data.get('description', 'N/A')[:60]
+                score = tool_data.get('quality_score', 0)
+                params_count = len(tool_data.get('parameters', []))
+                
+                preview_text += f"\n[{tool_name}]\n"
+                preview_text += f"  Description: {desc}...\n"
+                preview_text += f"  Quality: {score} | Params: {params_count}\n"
+        
+        self.results_text.setPlainText(preview_text)
+    
     def processing_error(self, error_msg):
         """Handle processing error"""
         self.processing = False
@@ -1011,22 +1288,80 @@ You can open this file to view the generated SQL tools.
         if self.status_label is not None:
             self.status_label.setText("Results copied to clipboard")
         
-    def save_results(self):
-        """Save results to file"""
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Save Results", "", "Text files (*.txt);;All files (*.*)"
-        )
-        if filename and self.results_text is not None:
-            with open(filename, 'w') as f:
-                f.write(self.results_text.toPlainText())
-            if self.status_label is not None:
-                self.status_label.setText(f"Results saved to {filename}")
+    def export_results(self, format_type):
+        """Export processing results summary"""
+        if not self.results:
+            QMessageBox.warning(self, "No Results", "No processing results to export")
+            return
+        
+        # Combine config and results
+        export_data = {**self.config, **self.results}
+        
+        if format_type == 'txt':
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Results", "", "Text files (*.txt);;All files (*.*)"
+            )
+            if filename:
+                export_results_to_txt(export_data, filename)
+                if self.status_label is not None:
+                    self.status_label.setText(f"Results exported to {filename}")
+        elif format_type == 'json':
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Results", "", "JSON files (*.json);;All files (*.*)"
+            )
+            if filename:
+                export_results_to_json(export_data, filename)
+                if self.status_label is not None:
+                    self.status_label.setText(f"Results exported to {filename}")
+    
+    def export_tools(self, format_type):
+        """Export generated tools"""
+        output_file = self.config.get('output_file', 'tools.yaml')
+        
+        if not os.path.isabs(output_file):
+            output_file = os.path.join(os.getcwd(), output_file)
+        
+        if not os.path.exists(output_file):
+            QMessageBox.warning(
+                self, 
+                "No Tools", 
+                "No generated tools found. Please generate tools first."
+            )
+            return
+        
+        if format_type == 'yaml':
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Tools", "", "YAML files (*.yaml *.yml);;All files (*.*)"
+            )
+            if filename:
+                from src.export import export_tools_to_yaml
+                export_tools_to_yaml(output_file, filename)
+                if self.status_label is not None:
+                    self.status_label.setText(f"Tools exported to {filename}")
+        elif format_type == 'json':
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Tools", "", "JSON files (*.json);;All files (*.*)"
+            )
+            if filename:
+                export_tools_to_json(output_file, filename)
+                if self.status_label is not None:
+                    self.status_label.setText(f"Tools exported to {filename}")
+        elif format_type == 'csv':
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Tools", "", "CSV files (*.csv);;All files (*.*)"
+            )
+            if filename:
+                export_tools_to_csv(output_file, filename)
+                if self.status_label is not None:
+                    self.status_label.setText(f"Tools exported to {filename}")
             
     def clear_results(self):
         """Clear results"""
         if self.results_text is not None:
             self.results_text.clear()
         self.results = {}
+        self.preview_tools = []
+        self.processing_stats = {}
         if self.status_label is not None:
             self.status_label.setText("Results cleared")
         
