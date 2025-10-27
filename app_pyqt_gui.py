@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Modern PyQt5 GUI for SQL Tool Generator
+Modern PyQt5 GUI for ToolMint
 With proper window controls and modern interface
 """
 
@@ -475,7 +475,7 @@ class ModernSQLToolGenerator(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎮 SQL Tool Generator - Modern GUI")
+        self.setWindowTitle("ToolMint")
         self.setGeometry(100, 100, 1400, 900)
         self.setMinimumSize(1000, 700)
         
@@ -487,7 +487,7 @@ class ModernSQLToolGenerator(QMainWindow):
             "output_file": "tools.yaml",
             "tool_name": "sql-tools", 
             "description": "SQL Tools for Database Operations",
-            "author": "SQL Tool Generator",
+            "author": "ToolMint",
             "version": "1.0.0",
             "license": "MIT",
             "db_type": "mysql-sql",
@@ -576,22 +576,37 @@ class ModernSQLToolGenerator(QMainWindow):
             }
             QCheckBox {
                 color: #333;
-                spacing: 8px;
-                font-size: 12px;
+                spacing: 10px;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 4px;
             }
             QCheckBox::indicator {
                 width: 18px;
                 height: 18px;
-                border: 2px solid #ddd;
+                border: 2px solid #888;
                 border-radius: 3px;
                 background-color: white;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #4CAF50;
             }
             QCheckBox::indicator:checked {
                 background-color: #4CAF50;
                 border-color: #4CAF50;
             }
-            QCheckBox::indicator:hover {
-                border-color: #4CAF50;
+            QCheckBox::indicator:checked:hover {
+                background-color: #45a049;
+                border-color: #45a049;
+            }
+            QToolTip {
+                background-color: #333;
+                color: white;
+                border: 2px solid #4CAF50;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                font-weight: 500;
             }
         """)
         
@@ -605,15 +620,7 @@ class ModernSQLToolGenerator(QMainWindow):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Title
-        title_label = QLabel("🎮 SQL Tool Generator")
-        title_font = QFont()
-        title_font.setPointSize(20)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #2E86AB; margin-bottom: 20px;")
-        main_layout.addWidget(title_label)
+     
         
         # Create splitter for main content
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -668,21 +675,6 @@ class ModernSQLToolGenerator(QMainWindow):
         view_dataset_btn.setToolTip("View dataset contents in a table")
         file_layout.addWidget(view_dataset_btn, 0, 3)
         
-        # Quick select
-        file_layout.addWidget(QLabel("Quick Select:"), 1, 0)
-        self.dataset_combo = QComboBox()
-        self.dataset_combo.currentTextChanged.connect(self.on_dataset_selected)
-        file_layout.addWidget(self.dataset_combo, 1, 1, 1, 2)
-        
-        # Open dataset button
-        open_dataset_btn = QPushButton("📂 Open Dataset")
-        open_dataset_btn.clicked.connect(self.open_dataset_from_list)
-        open_dataset_btn.setToolTip("Open and view selected dataset")
-        file_layout.addWidget(open_dataset_btn, 1, 3)
-        
-        # Load datasets
-        self.load_datasets()
-        
         layout.addWidget(file_group)
         
         # Basic Configuration Group
@@ -723,41 +715,70 @@ class ModernSQLToolGenerator(QMainWindow):
         options_group = QGroupBox("🔄 Processing Options")
         options_layout = QVBoxLayout(options_group)
         
-        # Checkboxes
+        # Checkboxes with help labels
         checkbox_layout = QVBoxLayout()
         
+        # Quality scoring
+        quality_container = QVBoxLayout()
         self.use_quality_check = QCheckBox("Use Quality Scoring")
         self.use_quality_check.setChecked(self.config["use_quality_scoring"])
         self.use_quality_check.stateChanged.connect(self.on_checkbox_changed)
-        checkbox_layout.addWidget(self.use_quality_check)
+        quality_container.addWidget(self.use_quality_check)
+        quality_help = QLabel("Evaluates tools based on parameter diversity and SQL complexity")
+        quality_help.setStyleSheet("color: #666; font-size: 11px; margin-left: 30px;")
+        quality_container.addWidget(quality_help)
+        checkbox_layout.addLayout(quality_container)
         
+        # Parameterization
+        param_container = QVBoxLayout()
         self.use_param_check = QCheckBox("Use Parameterization")
         self.use_param_check.setChecked(self.config["use_parameterization"])
         self.use_param_check.stateChanged.connect(self.on_checkbox_changed)
-        checkbox_layout.addWidget(self.use_param_check)
+        param_container.addWidget(self.use_param_check)
+        param_help = QLabel("Converts SQL to parameterized templates for reusability")
+        param_help.setStyleSheet("color: #666; font-size: 11px; margin-left: 30px;")
+        param_container.addWidget(param_help)
+        checkbox_layout.addLayout(param_container)
         
+        # Labeling
+        label_container = QVBoxLayout()
         self.use_label_check = QCheckBox("Use Labeling")
         self.use_label_check.setChecked(self.config["use_labeling"])
         self.use_label_check.stateChanged.connect(self.on_checkbox_changed)
-        checkbox_layout.addWidget(self.use_label_check)
+        label_container.addWidget(self.use_label_check)
+        label_help = QLabel("Adds semantic labels for FAISS retrieval (SELECT, JOIN, etc.)")
+        label_help.setStyleSheet("color: #666; font-size: 11px; margin-left: 30px;")
+        label_container.addWidget(label_help)
+        checkbox_layout.addLayout(label_container)
         
         options_layout.addLayout(checkbox_layout)
         
         # Quality score slider
-        quality_layout = QHBoxLayout()
-        quality_layout.addWidget(QLabel("Min Quality Score:"))
+        quality_container = QVBoxLayout()
+        quality_container.setSpacing(5)
+        
+        quality_slider_layout = QHBoxLayout()
+        min_quality_label = QLabel("Min Quality Score:")
+        quality_slider_layout.addWidget(min_quality_label)
         
         self.quality_slider = QSlider(Qt.Orientation.Horizontal)
         self.quality_slider.setMinimum(0)
         self.quality_slider.setMaximum(100)
         self.quality_slider.setValue(self.config["min_quality_score"])
         self.quality_slider.valueChanged.connect(self.update_quality_label)
-        quality_layout.addWidget(self.quality_slider)
+        quality_slider_layout.addWidget(self.quality_slider)
         
         self.quality_label = QLabel(str(self.config["min_quality_score"]))
-        quality_layout.addWidget(self.quality_label)
+        self.quality_label.setStyleSheet("font-weight: bold; color: #2E86AB; min-width: 30px;")
+        quality_slider_layout.addWidget(self.quality_label)
         
-        options_layout.addLayout(quality_layout)
+        quality_container.addLayout(quality_slider_layout)
+        
+        quality_help_label = QLabel("Filter tools below this score. Lower = more tools, Higher = premium quality only")
+        quality_help_label.setStyleSheet("color: #666; font-size: 11px; margin-left: 5px;")
+        quality_container.addWidget(quality_help_label)
+        
+        options_layout.addLayout(quality_container)
         
         layout.addWidget(options_group)
         
@@ -800,11 +821,12 @@ class ModernSQLToolGenerator(QMainWindow):
         # Results buttons
         button_layout = QHBoxLayout()
         
-        view_tools_btn = QPushButton("🛠️ View Generated Tools")
-        view_tools_btn.clicked.connect(self.view_generated_tools)
-        view_tools_btn.setToolTip("View the generated tools YAML file")
-        view_tools_btn.setStyleSheet("QPushButton { background-color: #FF9800; }")
-        button_layout.addWidget(view_tools_btn)
+        self.view_tools_btn = QPushButton("🛠️ View Generated Tools")
+        self.view_tools_btn.clicked.connect(self.view_generated_tools)
+        self.view_tools_btn.setToolTip("View the generated tools YAML file")
+        self.view_tools_btn.setStyleSheet("QPushButton { background-color: #FF9800; }")
+        self.view_tools_btn.setVisible(False)  # Initially hidden
+        button_layout.addWidget(self.view_tools_btn)
         
         copy_btn = QPushButton("📋 Copy Results")
         copy_btn.clicked.connect(self.copy_results)
@@ -824,23 +846,6 @@ class ModernSQLToolGenerator(QMainWindow):
         
         return panel
         
-    def load_datasets(self):
-        """Load available datasets"""
-        datasets_dir = os.path.join(os.getcwd(), "datasets")
-        if os.path.exists(datasets_dir):
-            files = [f for f in os.listdir(datasets_dir) if f.endswith('.jsonl')]
-            self.dataset_combo.addItems(files)
-            if files:
-                self.file_path_edit.setText(os.path.join(datasets_dir, files[0]))
-        else:
-            self.dataset_combo.addItem("No datasets found")
-            
-    def on_dataset_selected(self, text):
-        """Handle dataset selection"""
-        if text and text != "No datasets found":
-            datasets_dir = os.path.join(os.getcwd(), "datasets")
-            self.file_path_edit.setText(os.path.join(datasets_dir, text))
-            
     def browse_file(self):
         """Browse for file"""
         filename, _ = QFileDialog.getOpenFileName(
@@ -859,27 +864,6 @@ class ModernSQLToolGenerator(QMainWindow):
         if not os.path.exists(file_path):
             QMessageBox.warning(self, "File Not Found", f"The file does not exist:\n{file_path}")
             return
-        
-        # Open viewer dialog
-        dialog = DatasetViewerDialog(file_path, self)
-        dialog.exec_()
-        
-    def open_dataset_from_list(self):
-        """Open and view dataset from the quick select combo box"""
-        selected_text = self.dataset_combo.currentText()
-        if not selected_text or selected_text == "No datasets found":
-            QMessageBox.warning(self, "No Dataset", "Please select a dataset from the list")
-            return
-        
-        datasets_dir = os.path.join(os.getcwd(), "datasets")
-        file_path = os.path.join(datasets_dir, selected_text)
-        
-        if not os.path.exists(file_path):
-            QMessageBox.warning(self, "File Not Found", f"The file does not exist:\n{file_path}")
-            return
-        
-        # Update the file path edit
-        self.file_path_edit.setText(file_path)
         
         # Open viewer dialog
         dialog = DatasetViewerDialog(file_path, self)
@@ -956,6 +940,9 @@ class ModernSQLToolGenerator(QMainWindow):
         
         self.results = results
         self.update_results()
+        
+        # Show View Generated Tools button
+        self.view_tools_btn.setVisible(True)
         
     def processing_error(self, error_msg):
         """Handle processing error"""
@@ -1042,6 +1029,9 @@ You can open this file to view the generated SQL tools.
         self.results = {}
         if self.status_label is not None:
             self.status_label.setText("Results cleared")
+        
+        # Hide View Generated Tools button
+        self.view_tools_btn.setVisible(False)
             
     def view_generated_tools(self):
         """View the generated tools YAML file"""
@@ -1070,9 +1060,12 @@ def main():
     app = QApplication(sys.argv)
     
     # Set application properties
-    app.setApplicationName("SQL Tool Generator")
+    app.setApplicationName("ToolMint")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("SQL Tool Generator")
+    app.setOrganizationName("ToolMint")
+    
+    # Enable tooltips
+    app.setStyle('Fusion')
     
     # Create and show main window
     window = ModernSQLToolGenerator()

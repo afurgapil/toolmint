@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SQL labeling functions for SQL Tool Generator"""
+"""SQL labeling functions for ToolMint"""
 
 import re
 from typing import List

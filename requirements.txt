@@ -1,4 +1,4 @@
-# SQL Tool Generator - Required Dependencies
+# ToolMint - Required Dependencies
 # Core dependencies
 PyQt5==5.15.11
 PyYAML==6.0.3

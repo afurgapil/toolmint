@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Utility functions for SQL Tool Generator"""
+"""Utility functions for ToolMint"""
 
 import re
 import hashlib

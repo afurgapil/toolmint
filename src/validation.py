@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validation functions for SQL Tool Generator"""
+"""Validation functions for ToolMint"""
 
 import re
 from typing import Dict, Any, List, Tuple
@@ -13,7 +13,7 @@ def validate_tool(sql: str, params: List[Dict], question: str) -> Tuple[bool, st
     return is_valid, msg
 
 def validate_tool_advanced(sql: str, params: List[Dict], question: str, 
-                          min_score: float = 50.0) -> Tuple[bool, str, float]:
+                        min_score: float = 50.0) -> Tuple[bool, str, float]:
     """
     Gelişmiş kalite kontrolü with scoring.
     Returns: (is_valid, error_message, quality_score)

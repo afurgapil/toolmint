@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quality scoring functions for SQL Tool Generator"""
+"""Quality scoring functions for ToolMint"""
 
 import re
 from typing import Dict, Any, List, Tuple

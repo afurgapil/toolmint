@@ -1,4 +1,4 @@
-"""SQL Tool Generator - Modular Components"""
+"""ToolMint - Modular Components"""
 __version__ = "2.0.0"
 
 from .parameterizer import SQLParameterizer

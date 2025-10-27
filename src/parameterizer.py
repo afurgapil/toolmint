@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SQL Parameterizer class for SQL Tool Generator"""
+"""SQL Parameterizer class for ToolMint"""
 
 import re
 from typing import Dict, Any, List, Tuple, Set

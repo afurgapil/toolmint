@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""I/O operations for SQL Tool Generator"""
+"""I/O operations for ToolMint"""
 
 import os
 import json
