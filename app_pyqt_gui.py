@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSlider, QComboBox, QFileDialog, QMessageBox,
                              QTabWidget, QGroupBox, QSplitter, QFrame,
                              QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QMenu,
-                             QScrollArea)
+                             QScrollArea, QInputDialog)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QPalette, QColor
 
@@ -351,7 +351,6 @@ class ProcessingWorker(QThread):
     status = pyqtSignal(str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
-    preview = pyqtSignal(dict)  # Preview of first tools
     stats = pyqtSignal(dict)  # Processing statistics
     
     def __init__(self, config):
@@ -456,10 +455,6 @@ class ProcessingWorker(QThread):
                     progress = 50 + int((i / len(data)) * 40)
                     self.progress.emit(progress)
                     
-                    # Emit preview of first 10 tools
-                    if processed_count <= 10:
-                        self.preview.emit(tool)
-                    
                     # Emit stats every 100 items or every 10 items after first 100
                     if i % 10 == 0 or (processed_count > 100 and i % 100 == 0):
                         elapsed = time.time() - start_time
@@ -559,7 +554,6 @@ class ModernSQLToolGenerator(QMainWindow):
         
         self.processing = False
         self.results = {}
-        self.preview_tools = []  # Store preview tools
         self.processing_stats = {}  # Store processing statistics
         
         # Create UI
@@ -655,13 +649,38 @@ class ModernSQLToolGenerator(QMainWindow):
                 border-color: #45a049;
             }
             QToolTip {
-                background-color: #333;
-                color: white;
-                border: 2px solid #4CAF50;
+                background-color: #e0e0e0;
+                color: black;
+                border: 1px solid #999;
                 border-radius: 4px;
                 padding: 8px;
                 font-size: 12px;
                 font-weight: 500;
+            }
+            QMessageBox {
+                background-color: white;
+                color: #333;
+                font-size: 13px;
+            }
+            QMessageBox QLabel {
+                color: #333;
+                background-color: white;
+                padding: 10px;
+            }
+            QMessageBox QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+                min-width: 80px;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #45a049;
+            }
+            QMessageBox QPushButton:pressed {
+                background-color: #3d8b40;
             }
         """)
         
@@ -709,20 +728,12 @@ class ModernSQLToolGenerator(QMainWindow):
         # Status bar
         status_bar = self.statusBar()
         if status_bar is not None:
-            # Add left spacer to center the content
-            status_bar.addWidget(QLabel())  # Left spacer
-            
-            self.status_label = QLabel("Ready")
+            self.status_label = QLabel()  # Hidden label, just for internal tracking
+            self.status_label.setVisible(False)
             status_bar.addWidget(self.status_label)
             
-            # Progress bar in status bar (centered)
-            self.progress_bar = QProgressBar()
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setMaximumWidth(300)  # Limit width
-            status_bar.addWidget(self.progress_bar)
-            
-            # Add right spacer to balance
-            status_bar.addPermanentWidget(QLabel())  # Right spacer
+            # Progress bar removed - we use ASCII progress in results panel instead
+            self.progress_bar = None
         
     def create_config_panel(self):
         """Create configuration panel"""
@@ -736,9 +747,13 @@ class ModernSQLToolGenerator(QMainWindow):
         # File Selection Group
         file_group = QGroupBox("📁 Input File")
         file_layout = QGridLayout(file_group)
+        file_layout.setVerticalSpacing(8)
+        file_layout.setHorizontalSpacing(8)
         
         # File path
-        file_layout.addWidget(QLabel("Dataset File:"), 0, 0)
+        file_label = QLabel("Dataset File:")
+        file_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        file_layout.addWidget(file_label, 0, 0)
         self.file_path_edit = QLineEdit()
         self.file_path_edit.setPlaceholderText("Select a dataset file...")
         file_layout.addWidget(self.file_path_edit, 0, 1)
@@ -758,6 +773,24 @@ class ModernSQLToolGenerator(QMainWindow):
         """)
         file_layout.addWidget(browse_btn, 0, 2)
         
+        # Hugging Face Import button
+        hf_btn = QPushButton("🤗 HF")
+        hf_btn.clicked.connect(self.import_from_hf)
+        hf_btn.setToolTip("Import dataset from Hugging Face Hub")
+        hf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                font-weight: bold;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #FF5252;
+                color: black;
+            }
+        """)
+        file_layout.addWidget(hf_btn, 0, 3)
+        
         # View dataset button
         view_dataset_btn = QPushButton("👁️ View")
         view_dataset_btn.clicked.connect(self.view_dataset)
@@ -771,9 +804,10 @@ class ModernSQLToolGenerator(QMainWindow):
             }
             QPushButton:hover {
                 background-color: #1976D2;
+                color: black;
             }
         """)
-        file_layout.addWidget(view_dataset_btn, 0, 3)
+        file_layout.addWidget(view_dataset_btn, 0, 4)
         
         layout.addWidget(file_group)
         
@@ -888,7 +922,10 @@ class ModernSQLToolGenerator(QMainWindow):
         quality_container.setSpacing(5)
         
         quality_slider_layout = QHBoxLayout()
+        quality_slider_layout.setSpacing(8)
+        
         min_quality_label = QLabel("Min Quality Score:")
+        min_quality_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         quality_slider_layout.addWidget(min_quality_label)
         
         self.quality_slider = QSlider(Qt.Orientation.Horizontal)
@@ -896,10 +933,11 @@ class ModernSQLToolGenerator(QMainWindow):
         self.quality_slider.setMaximum(100)
         self.quality_slider.setValue(self.config["min_quality_score"])
         self.quality_slider.valueChanged.connect(self.update_quality_label)
-        quality_slider_layout.addWidget(self.quality_slider)
+        quality_slider_layout.addWidget(self.quality_slider, 1)  # Give it stretch factor
         
         self.quality_label = QLabel(str(self.config["min_quality_score"]))
-        self.quality_label.setStyleSheet("font-weight: bold; color: #2E86AB; min-width: 30px;")
+        self.quality_label.setStyleSheet("font-weight: bold; color: #2E86AB; min-width: 40px;")
+        self.quality_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         quality_slider_layout.addWidget(self.quality_label)
         
         quality_container.addLayout(quality_slider_layout)
@@ -945,6 +983,16 @@ class ModernSQLToolGenerator(QMainWindow):
         # Results text area
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
+        
+        # Welcome banner
+        welcome_banner = """
+                   Welcome to ToolMint                        
+              SQL Tool Generation Platform                    
+
+
+          Processing results will appear here...
+"""
+        self.results_text.setPlainText(welcome_banner)
         self.results_text.setPlaceholderText("Processing results will appear here...")
         results_layout.addWidget(self.results_text)
         
@@ -997,6 +1045,169 @@ class ModernSQLToolGenerator(QMainWindow):
         )
         if filename:
             self.file_path_edit.setText(filename)
+    
+    def import_from_hf(self):
+        """Import dataset from Hugging Face Hub"""
+        try:
+            # Simple input dialog for HF dataset name
+            from src.hf_importer import import_from_hf_dataset, normalize_hf_dataset, save_hf_dataset_to_jsonl
+            
+            text, ok = QInputDialog.getText(
+                self, 
+                'Import from Hugging Face',
+                'Enter Hugging Face dataset name:\n(e.g., spider, wikisql, text2sql-apps)\nor org/repo (e.g., gretelai/synthetic_text_to_sql)'
+            )
+            
+            if not ok or not text:
+                return
+            
+            # Clean the dataset name
+            dataset_name = text.strip()
+            
+            # Remove common URL patterns if user pasted a URL
+            import re
+            if 'huggingface.co' in dataset_name:
+                # Extract dataset name from URL - match org/repo format
+                # Pattern: huggingface.co/datasets/org/repo or huggingface.co/datasets/org-repo
+                match = re.search(r'huggingface\.co/datasets/([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)', dataset_name)
+                if match:
+                    dataset_name = match.group(1)
+                else:
+                    QMessageBox.warning(self, "Invalid URL", "Could not extract dataset name from URL")
+                    return
+            
+            # Remove leading/trailing slashes, dots, and spaces
+            dataset_name = dataset_name.strip('/').strip('.').strip()
+            
+            # Remove any query parameters or fragments (e.g., ?library=datasets, #anything)
+            if '?' in dataset_name:
+                dataset_name = dataset_name.split('?')[0]
+            if '#' in dataset_name:
+                dataset_name = dataset_name.split('#')[0]
+            
+            # Remove any trailing invalid characters
+            while dataset_name.endswith(('.', '-', '/')):
+                dataset_name = dataset_name[:-1]
+            
+            # Import from HF
+            self.status_label.setText(f"Downloading '{dataset_name}' from Hugging Face...")
+            QApplication.processEvents()
+            
+            try:
+                records = import_from_hf_dataset(dataset_name)
+            except RuntimeError as e:
+                if "Dataset scripts are no longer supported" in str(e):
+                    QMessageBox.warning(
+                        self,
+                        "Unsupported Dataset Format",
+                        f"This dataset ('{dataset_name}') uses Python loading scripts which are no longer supported by Hugging Face.\n\n"
+                        "Please try one of these recommended datasets:\n"
+                        "• spider\n"
+                        "• gretelai/synthetic_text_to_sql\n\n"
+                        "For more details, visit:\n"
+                        "https://huggingface.co/docs/datasets/v2.0.0/en/dataset_script#deprecated"
+                    )
+                elif "doesn't exist" in str(e) or "not found" in str(e).lower():
+                    QMessageBox.warning(
+                        self,
+                        "Dataset Not Found",
+                        f"The dataset '{dataset_name}' could not be found on Hugging Face Hub.\n\n"
+                        "Please check:\n"
+                        "• Dataset name is correct\n"
+                        "• Dataset is public or you have access\n"
+                        "• You have an internet connection"
+                    )
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Import Error",
+                        f"Failed to load dataset '{dataset_name}':\n\n{str(e)}"
+                    )
+                self.status_label.setText("Ready")
+                return
+            except ImportError as e:
+                QMessageBox.warning(
+                    self,
+                    "Missing Dependency",
+                    f"Hugging Face datasets library error:\n\n{str(e)}\n\n"
+                    "Please ensure 'datasets' is installed:\npip install datasets"
+                )
+                self.status_label.setText("Ready")
+                return
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Unexpected Error",
+                    f"An unexpected error occurred while loading '{dataset_name}':\n\n{str(e)}\n\n"
+                    "Please check your internet connection and try again."
+                )
+                self.status_label.setText("Ready")
+                return
+            
+            if not records:
+                QMessageBox.warning(
+                    self,
+                    "Empty Dataset",
+                    f"The dataset '{dataset_name}' is empty or has no records."
+                )
+                self.status_label.setText("Ready")
+                return
+            
+            # Normalize records - pass dataset name for profile matching
+            self.status_label.setText("Normalizing dataset...")
+            QApplication.processEvents()
+            
+            normalized = normalize_hf_dataset(records, dataset_name=dataset_name)
+            
+            if not normalized:
+                # Show detailed error message
+                if records:
+                    first_record_keys = list(records[0].keys())
+                    error_msg = (
+                        f"No valid records found in dataset '{dataset_name}'.\n\n"
+                        f"Detected fields: {', '.join(first_record_keys)}\n\n"
+                        f"This dataset may need a custom profile.\n"
+                        f"Please ensure records contain both a question and SQL field."
+                    )
+                else:
+                    error_msg = f"No records found in dataset '{dataset_name}'."
+                
+                QMessageBox.warning(self, "Import Failed", error_msg)
+                return
+            
+            # Save to datasets directory
+            safe_name = dataset_name.replace('/', '_').replace('.', '_')
+            
+            # Create datasets directory if it doesn't exist
+            datasets_dir = "datasets"
+            if not os.path.exists(datasets_dir):
+                os.makedirs(datasets_dir)
+            
+            # Save dataset to datasets directory
+            dataset_file = os.path.join(datasets_dir, f"{safe_name}.jsonl")
+            save_hf_dataset_to_jsonl(normalized, dataset_file)
+            
+            # Set file path
+            self.file_path_edit.setText(dataset_file)
+            
+            QMessageBox.information(
+                self, 
+                "Import Successful", 
+                f"Imported {len(normalized)} records from Hugging Face dataset '{dataset_name}'"
+            )
+            
+            self.status_label.setText("Ready")
+            
+        except Exception as e:
+            # Catch any unexpected errors during import
+            import traceback
+            error_details = traceback.format_exc()
+            QMessageBox.critical(
+                self,
+                "Import Error",
+                f"An unexpected error occurred:\n\n{str(e)}\n\nDetails:\n{error_details}"
+            )
+            self.status_label.setText("Ready")
             
     def view_dataset(self):
         """View the currently selected dataset"""
@@ -1115,9 +1326,6 @@ SQL Features:
         self.processing = True
         self.process_btn.setText("⏳ Processing...")
         self.process_btn.setEnabled(False)
-        if self.progress_bar is not None:
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
         
         # Clear results panel and show "Starting..." message
         if self.results_text is not None:
@@ -1125,16 +1333,12 @@ SQL Features:
         
         # Create and start worker thread
         self.worker = ProcessingWorker(self.config)
-        self.preview_tools = []  # Reset preview tools
         self.processing_stats = {}  # Reset stats
         
-        if self.progress_bar is not None:
-            self.worker.progress.connect(self.progress_bar.setValue)
         if self.status_label is not None:
             self.worker.status.connect(self.status_label.setText)
         self.worker.finished.connect(self.processing_finished)
         self.worker.error.connect(self.processing_error)
-        self.worker.preview.connect(self.handle_preview)
         self.worker.stats.connect(self.handle_stats)
         self.worker.start()
         
@@ -1167,8 +1371,6 @@ SQL Features:
         self.processing = False
         self.process_btn.setText("🚀 Start Processing")
         self.process_btn.setEnabled(True)
-        if self.progress_bar is not None:
-            self.progress_bar.setVisible(False)
         
         self.results = results
         self.update_results()
@@ -1176,10 +1378,6 @@ SQL Features:
         # Show View Generated Tools button
         self.view_tools_btn.setVisible(True)
         
-    def handle_preview(self, tool):
-        """Handle preview tool from processing"""
-        self.preview_tools.append(tool)
-        self.update_processing_preview()
     
     def handle_stats(self, stats):
         """Handle processing statistics"""
@@ -1191,33 +1389,40 @@ SQL Features:
         if self.results_text is None:
             return
         
-        # Build preview text
-        preview_text = "Processing in Progress...\n"
-        preview_text += "=" * 60 + "\n\n"
+        # Build preview text with simple banner
+        preview_text = """
+                   Welcome to ToolMint                        
+              SQL Tool Generation Platform                    
+
+
+Processing in Progress...
+
+"""
         
         # Add stats if available
         if self.processing_stats:
             stats = self.processing_stats
-            preview_text += f"Progress: {stats.get('processed', 0)}/{stats.get('total', 0)} items processed\n"
-            preview_text += f"Filtered: {stats.get('filtered', 0)} items\n"
-            preview_text += f"Elapsed: {stats.get('elapsed', '0')}s | "
-            preview_text += f"ETA: {stats.get('eta', 'Calculating...')}\n\n"
-        
-        # Add preview of first tools
-        if self.preview_tools:
-            preview_text += "Preview (First Tools):\n"
-            preview_text += "-" * 60 + "\n"
+            processed = stats.get('processed', 0)
+            total = stats.get('total', 0)
+            filtered = stats.get('filtered', 0)
+            elapsed = stats.get('elapsed', '0')
+            eta = stats.get('eta', 'Calculating...')
             
-            for tool in self.preview_tools[:10]:
-                tool_name = list(tool.keys())[0]
-                tool_data = tool[tool_name]
-                desc = tool_data.get('description', 'N/A')[:60]
-                score = tool_data.get('quality_score', 0)
-                params_count = len(tool_data.get('parameters', []))
-                
-                preview_text += f"\n[{tool_name}]\n"
-                preview_text += f"  Description: {desc}...\n"
-                preview_text += f"  Quality: {score} | Params: {params_count}\n"
+            # Calculate progress percentage
+            if total > 0:
+                progress_pct = int((processed / total) * 100)
+            else:
+                progress_pct = 0
+            
+            # Create ASCII progress bar
+            bar_width = 50
+            filled = int((progress_pct / 100) * bar_width)
+            progress_bar = "[" + "█" * filled + "░" * (bar_width - filled) + "]"
+            
+            preview_text += f"Progress: {processed}/{total} items processed ({progress_pct}%)\n"
+            preview_text += f"{progress_bar}\n\n"
+            preview_text += f"Filtered: {filtered} items\n"
+            preview_text += f"Elapsed: {elapsed}s | ETA: {eta}\n"
         
         self.results_text.setPlainText(preview_text)
     
@@ -1226,8 +1431,6 @@ SQL Features:
         self.processing = False
         self.process_btn.setText("🚀 Start Processing")
         self.process_btn.setEnabled(True)
-        if self.progress_bar is not None:
-            self.progress_bar.setVisible(False)
         
         # Create a more detailed error dialog
         error_dialog = QMessageBox(self)
@@ -1360,7 +1563,6 @@ You can open this file to view the generated SQL tools.
         if self.results_text is not None:
             self.results_text.clear()
         self.results = {}
-        self.preview_tools = []
         self.processing_stats = {}
         if self.status_label is not None:
             self.status_label.setText("Results cleared")

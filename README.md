@@ -22,6 +22,16 @@ An intelligent system for generating parameterized SQL tools from text-to-SQL da
 Transform natural language queries into reusable, parameterized SQL tools with built-in quality assessment and modern GUI interfaces.
 </p>
 
+<div align="center">
+  
+### 🎥 Project Demo Video (30 seconds)
+
+![Demo](https://github.com/user-attachments/assets/c4c34eae-b566-4c81-a215-a5c7b7cd7d33)
+
+_Watch how ToolMint transforms SQL datasets into production-ready tools_
+
+</div>
+
 ---
 
 ## Overview

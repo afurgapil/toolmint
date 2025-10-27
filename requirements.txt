@@ -4,6 +4,7 @@ PyQt5==5.15.11
 PyYAML==6.0.3
 pandas==2.3.3
 numpy==2.3.4
+datasets>=2.0.0
 
 # Optional dependencies for image processing (if needed)
 pillow==12.0.0
