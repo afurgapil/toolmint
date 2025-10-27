@@ -1,0 +1,20 @@
+{
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.13",
+  "include": ["src", "app_pyqt_gui.py"],
+  "exclude": ["venv", "**/__pycache__", "**/*.pyc"],
+  "reportMissingImports": "none",
+  "reportMissingTypeStubs": false,
+  "reportMissingModuleSource": "none",
+  "typeCheckingMode": "basic",
+  "pythonPlatform": "Darwin",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonVersion": "3.13",
+      "pythonPlatform": "Darwin",
+      "extraPaths": ["./src", "./venv/lib/python3.13/site-packages"]
+    }
+  ]
+}
